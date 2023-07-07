@@ -21,7 +21,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/core/vm"
+	evm "github.com/ethereum/go-ethereum/core/vm"
 )
 
 // Iterator for disassembled EVM instructions
@@ -29,7 +29,7 @@ type instructionIterator struct {
 	code    []byte
 	pc      uint64
 	arg     []byte
-	op      vm.OpCode
+	op      evm.OpCode
 	error   error
 	started bool
 }
@@ -64,9 +64,9 @@ func (it *instructionIterator) Next() bool {
 		return false
 	}
 
-	it.op = vm.OpCode(it.code[it.pc])
+	it.op = evm.OpCode(it.code[it.pc])
 	if it.op.IsPush() {
-		a := uint64(it.op) - uint64(vm.PUSH1) + 1
+		a := uint64(it.op) - uint64(evm.PUSH1) + 1
 		u := it.pc + 1 + a
 		if uint64(len(it.code)) <= it.pc || uint64(len(it.code)) < u {
 			it.error = fmt.Errorf("incomplete push instruction at %v", it.pc)
@@ -90,7 +90,7 @@ func (it *instructionIterator) PC() uint64 {
 }
 
 // Op returns the opcode of the current instruction.
-func (it *instructionIterator) Op() vm.OpCode {
+func (it *instructionIterator) Op() evm.OpCode {
 	return it.op
 }
 
@@ -117,11 +117,44 @@ func PrintDisassembled(code string) error {
 	return it.Error()
 }
 
+type AsmOpMap map[string][]string
+
+func EvaluateDisassembled(code string) (AsmOpMap, error) {
+	var aom AsmOpMap
+	aom = make(AsmOpMap)
+
+	script, err := hex.DecodeString(code)
+	if err != nil {
+		return nil, err
+	}
+
+	instrItr := NewInstructionIterator(script)
+	for instrItr.Next() {
+		var interpretedKey, interpretedValue string
+		if instrItr.Arg() != nil && len(instrItr.Arg()) > 0 {
+			interpretedKey = fmt.Sprintf("%v", instrItr.Op())
+			interpretedValue = fmt.Sprintf("%#x", instrItr.Arg())
+			interpretedValue = interpretedValue[2:]
+			aom[interpretedKey] = append(aom[interpretedKey], interpretedValue)
+		} else {
+			interpretedKey = fmt.Sprintf("%v", instrItr.Op())
+			aom[interpretedKey] = append(aom[interpretedKey], "NONE")
+		}
+	}
+
+	if len(aom) == 0 {
+		return nil, instrItr.Error()
+	}
+	return aom, instrItr.Error()
+}
+
 // Disassemble returns all disassembled EVM instructions in human-readable format.
 func Disassemble(script []byte) ([]string, error) {
 	instrs := make([]string, 0)
 
 	it := NewInstructionIterator(script)
+	fmt.Printf("on disassemble fn script : %v\n", it)
+
 	for it.Next() {
 		if it.Arg() != nil && 0 < len(it.Arg()) {
 			instrs = append(instrs, fmt.Sprintf("%05x: %v %#x\n", it.PC(), it.Op(), it.Arg()))
